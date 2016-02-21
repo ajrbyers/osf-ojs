@@ -8,5 +8,5 @@
  *
  */
 
-require_once('FigsharePlugin.php');
-return new FigsharePlugin();
+require_once('OsfPlugin.php');
+return new OsfPlugin();

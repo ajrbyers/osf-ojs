@@ -10,7 +10,7 @@
 
 
 import('classes.handler.Handler');
-require_once('FigshareDAO.inc.php');
+require_once('OsfDAO.inc.php');
 
 function redirect($url) {
 	header("Location: ". $url); // http://www.example.com/"); /* Redirect browser */
@@ -29,13 +29,13 @@ function clean_string($v) {
 	return preg_replace('/[^\-a-zA-Z0-9]+/', '',$v);
 }
 
-class FigshareHandler extends Handler {
+class OsfHandler extends Handler {
 
 	public $dao = null;
 
-	function FigshareHandler() {
+	function OsfHandler() {
 		parent::Handler();
-		$this->dao = new FigshareDAO();
+		$this->dao = new OsfDAO();
 	}
 	
 	// utils
@@ -58,7 +58,7 @@ class FigshareHandler extends Handler {
 		
 		// default page values
 		$context = array(
-			"page_title" => "Figshare"
+			"page_title" => "OSF Submission"
 		);
 		foreach($page_context as $key => $val) {
 			$context[$key] = $val;

@@ -2,16 +2,15 @@
 
 /**
  *
- * Plugin for submitting additional files to Figshare
+ * Plugin for submitting additional files to Osf
  * Written by Andy Byers, Ubiquity Press
- * As part of the Streamingling Deposit JISC Project 
  *
  */
 
 import('lib.pkp.classes.plugins.GenericPlugin');
-require_once('FigshareDAO.inc.php');
+require_once('OsfDAO.inc.php');
 
-class FigsharePlugin extends GenericPlugin {
+class OsfPlugin extends GenericPlugin {
 	function register($category, $path) {
 		if(!parent::register($category, $path)) {
 			//debug("failed to register!");
@@ -20,8 +19,8 @@ class FigsharePlugin extends GenericPlugin {
 		if($this->getEnabled()) {
 			HookRegistry::register("LoadHandler", array(&$this, "handleRequest"));
 			$tm =& TemplateManager::getManager();
-			$tm->assign("collectionsEnabled", true);
-			define('FIGSHARE_PLUGIN_NAME', $this->getName());
+			$tm->assign("osfEnabled", true);
+			define('OSF_PLUGIN_NAME', $this->getName());
 		}
 		return true;
 	}
@@ -31,21 +30,25 @@ class FigsharePlugin extends GenericPlugin {
 		$op =& $args[1];
 		$sourceFile =& $args[2];
 
-		if ($page == 'figshare' || $page == 'articles') {
-			$this->import('FigshareHandler');
+		if ($page == 'osf') {
+			$this->import('OsfHandler');
 			Registry::set('plugin', $this);
-			define('HANDLER_CLASS', 'FigshareHandler');
+			define('HANDLER_CLASS', 'OsfHandler');
 			return true;
 		}
 		return false;
 	}
 
+	function getName() {
+		return "OSF Submission";
+	}
+
 	function getDisplayName() {
-		return "Figshare Files";
+		return "OSF Submission";
 	}
 	
 	function getDescription() {
-		return "Allows files to be uploaded into Figshare";
+		return "Allows OSF users to submit articles directly to OJS.";
 	}
 	
 	function getTemplatePath() {
