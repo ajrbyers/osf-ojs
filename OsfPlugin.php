@@ -2,7 +2,7 @@
 
 /**
  *
- * Plugin for submitting additional files to Osf
+ * Plugin for submitting an article from OSF.io
  * Written by Andy Byers, Ubiquity Press
  *
  */
@@ -12,18 +12,18 @@ require_once('OsfDAO.inc.php');
 
 class OsfPlugin extends GenericPlugin {
 	function register($category, $path) {
-		if(!parent::register($category, $path)) {
-			//debug("failed to register!");
-			return false;
+		if (parent::register($category, $path)) {
+			if ($this->getEnabled()) {
+				HookRegistry::register("LoadHandler", array(&$this, "handleRequest"));
+				$tm =& TemplateManager::getManager();
+				$tm->assign("osfEnabled", true);
+				define('OSF_PLUGIN_NAME', $this->getName());
+			}
+			return true;
 		}
-		if($this->getEnabled()) {
-			HookRegistry::register("LoadHandler", array(&$this, "handleRequest"));
-			$tm =& TemplateManager::getManager();
-			$tm->assign("osfEnabled", true);
-			define('OSF_PLUGIN_NAME', $this->getName());
-		}
-		return true;
+		return false;
 	}
+
 
 	function handleRequest($hookName, $args) {
 		$page =& $args[0];

@@ -2,12 +2,10 @@
 
 /**
  *
- * Plugin for submitting additional files to Figshare
+ * Plugin for submitting an article from OSF.io
  * Written by Andy Byers, Ubiquity Press
- * As part of the Streamingling Deposit JISC Project 
  *
  */
-
 
 import('classes.handler.Handler');
 require_once('OsfDAO.inc.php');
@@ -64,7 +62,7 @@ class OsfHandler extends Handler {
 			$context[$key] = $val;
 		}
 
-		$plugin =& PluginRegistry::getPlugin('generic', FIGSHARE_PLUGIN_NAME);
+		$plugin =& PluginRegistry::getPlugin('generic', OSF_PLUGIN_NAME);
 		$tp = $plugin->getTemplatePath();
 		$context["template_path"] = $tp;
 		$context["article_select_template"] = $tp . "article_select_snippet.tpl";
@@ -76,205 +74,34 @@ class OsfHandler extends Handler {
 		$templateMgr->display($tp . $fname);
 	}
 
-	/* Makes a call to the figshare api */
-	function api_call($data, $url, $method="POST", $file=false) {
-		$consumer_key = "93tNF6iUvZHlHrjhxruI2g";
-		$consumer_secret = "yftm1PU6TYNhwProLHTWqw";
-
-		$oauth = new OAuth($consumer_key, $consumer_secret);
-		$oauth->setToken($_SESSION['oauth_token'], $_SESSION['oauth_token_secret']);
-
-
-		$OA_header = $oauth->getRequestHeader($method, $url);
-		if ($file != false){
-			$headers = array("Content-Type: multipart/form-data","Authorization: $OA_header");
-		} else {
-			$headers = array("Content-Type: application/json", "Authorization: $OA_header");
-		}
-
-
-		$ch = curl_init();
-
-		if ($method == 'PUT') {
-			curl_setopt($ch, CURLOPT_URL, $url);
-			curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
-			curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-			curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
-			curl_setopt($ch, CURLOPT_POSTFIELDS    ,$data);
-		} else {
-			curl_setopt($ch, CURLOPT_URL, $url);
-			curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-			curl_setopt($ch, CURLOPT_POST, 1);
-			curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
-			curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
-		}
-
-		return json_decode(curl_exec($ch));
-	}
-
 	//
 	// views
 	//
 	
 	/* handles requests to:
-		/figshare/
-		/figshare/index/
+		/osf/
+		/osf/index/
 	*/
 	function index($args, &$request) {
 	
 		$context = array(
-			"page_title" => "Figshare Uploader",
+			"page_title" => "OSF Submission",
 		);
 		$this->display('index.tpl', $context);
 	}
 
 	/* handles requests to:
-		/figshare/submission/
-		/figshare/<submission_id>/
+		/osf/get_token/
 	*/
-	function submission($args, &$request) {
-
-		$article_id = clean_string(array_shift($args));
-		$this->validate($request, $article_id, 4);
-
-		$articleDao =& DAORegistry::getDAO('ArticleDAO');
-		$article =& $articleDao->getArticle($article_id);
-
-		if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-			import('classes.file.ArticleFileManager');
-			$article_file_manager = new ArticleFileManager($article_id);
-			$file_id = $article_file_manager->uploadSuppFile('uploadFigFile');
-
-			$file = $article_file_manager->getFile($file_id);
-			// create the figshare record
-			$url = 'http://api.figshare.com/v1/my_data/articles';
-			$data = json_encode(array('title'=>$_POST["title"], 'description'=>$_POST["description"], 'defined_type'=>$_POST["type"]));
-			$figshare_article = $this->api_call($data, $url);
-
-			// add file
-			$url = 'http://api.figshare.com/v1/my_data/articles/' . $figshare_article->{'article_id'} . '/files';
-			
-			// Get the file path
-			$file_path = $this->file_path($article_id, $file->getFileName());
-
-			$data = array('filedata'=>'@' . $file_path);
-			$figshare_file = $this->api_call($data, $url, "PUT", true);
-
-			$params = array();
-			$params[] = $file_id;
-			$params[] = $article_id;
-			$params[] = $figshare_article->{'article_id'};
-			$params[] = $_POST["title"];
-			$params[] = $_POST["description"];
-			$params[] = $_POST["type"];
-			$params[] = 'draft';
-			$params[] = $figshare_article->{'doi'};
-			$this->dao->create_figshare_file($params);
-
-		} elseif (isset($_GET['remove_file']) && isset($_GET['ojs_file'])) {
-			$figshare_file_id = $_GET['remove_file'];
-			$ojs_file_id = $_GET['ojs_file'];
-
-			import('classes.file.ArticleFileManager');
-			$article_file_manager = new ArticleFileManager($article_id);
-			$article_file_manager->deleteFile($ojs_file_id);
-			$this->dao->delete_figshare_file($figshare_file_id);
-		}
-
-		$figshare_files =& $this->dao->fetch_figshare_articles($article_id);
-		
-		$context = array(
-			"page_title" => "Figshare Uploader for " . $article->getArticleTitle(),
-			"article" => $article,
-			"figshare_files" => $figshare_files,
-		);
-		$this->display('index.tpl', $context);
+	function get_token($args, &$request) {
+		header ('Location: https://accounts.osf.io/oauth2/authorize?scope=osf.full_read&client_id=149ea618e57a4331acd8115360096aa0&redirect_uri=http://localhost:8000/index.php/test/osf/callback/');
 	}
 
-	function oauth($args, &$request) {
-		$article_id = clean_string(array_shift($args));
-		$this->validate($request, $article_id, 4);
-
-		$consumer_key = "93tNF6iUvZHlHrjhxruI2g";
-		$consumer_secret = "yftm1PU6TYNhwProLHTWqw";
-
-		$oauth = new OAuth($consumer_key, $consumer_secret);
-		$response = $oauth->getRequestToken(
-			'http://api.figshare.com/v1/pbl/oauth/request_token',
-			'http://ojs.ubiquity.press/index.php/test/figshare/callback/' . $article_id
-		);
-
-		$_SESSION['req_token'] = $response['oauth_token'];
-		$_SESSION['req_secret'] = $response['oauth_token_secret'];
-
-		header('Location: http://api.figshare.com/v1/pbl/oauth/authorize?oauth_token=' . $response['oauth_token']);
-	}
-
+	/* handles requests to:
+		/osf/callback/
+	*/
 	function callback($args, &$request) {
-		$article_id = clean_string(array_shift($args));
-		$this->validate($request, $article_id, 4);
-
-		$consumer_key = "93tNF6iUvZHlHrjhxruI2g";
-		$consumer_secret = "yftm1PU6TYNhwProLHTWqw";
-
-		$oauth = new OAuth($consumer_key, $consumer_secret);
-		$oauth->enableDebug();
-		$oauth->setToken($_SESSION['req_token'], $_SESSION['req_secret']);
-		try {
-			$response = $oauth->getAccessToken(
-				'http://api.figshare.com/v1/pbl/oauth/access_token',
-				null, null, 'POST'
-			);
-
-		    if(!empty($response)) {
-		        print_r($response);
-		    } else {
-		        print "Failed fetching access token, response was: " . $oauth->getLastResponse();
-		    }
-
-			var_dump($response);
-
-			$_SESSION['oauth_token'] = $response['oauth_token'];
-			$_SESSION['oauth_token_secret'] = $response['oauth_token_secret'];
-
-		} catch(OAuthException $E) {
-		    echo "Response: ". $E->lastResponse . "\n";
-		    var_dump($E);
-		}
-
-		header('Location: http://ojs.ubiquity.press/index.php/test/figshare/submission/' . $article_id);
-	}
-
-
-
-	/**
-	 * Validation check for submission.
-	 * Checks that article ID is valid, if specified.
-	 * @param $articleId int
-	 * @param $step int
-	 */
-	function validate($request, $articleId = null, $step = false, $reason = null) {
-		parent::validate($reason);
-		$articleDao =& DAORegistry::getDAO('ArticleDAO');
-		$user =& $request->getUser();
-		$journal =& $request->getJournal();
-
-		if ($step !== false && ($step < 1 || $step > 5 || (!$articleId && $step != 1))) {
-			$request->redirect(null, null, 'submit', array(1));
-		}
-
-		$article = null;
-
-		// Check that article exists for this journal and user and that submission is incomplete
-		if ($articleId) {
-			$article =& $articleDao->getArticle((int) $articleId);
-			if (!$article || $article->getUserId() !== $user->getId() || $article->getJournalId() !== $journal->getId() || ($step !== false && $step > $article->getSubmissionProgress())) {
-				$request->redirect(null, null, 'submit');
-			}
-		}
-
-		$this->article =& $article;
-		return true;
+		echo 'hello';
 	}
 	
 }

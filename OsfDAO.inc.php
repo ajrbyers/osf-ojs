@@ -2,13 +2,12 @@
 
 /**
  *
- * Plugin for submitting additional files to Figshare
+ * Plugin for submitting an article from OSF.io
  * Written by Andy Byers, Ubiquity Press
- * As part of the Streamingling Deposit JISC Project 
  *
  */
 
-class FigshareDAO extends DAO {
+class OsfDAO extends DAO {
 	function create_figshare_file($params) {
 		$sql = <<< EOF
 			INSERT INTO figshare_files
