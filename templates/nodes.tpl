@@ -9,8 +9,8 @@
 <h2>OSF Submission</h2>
 <p>Select a project to make a submission from.</p>
 <form method="POST">
-{foreach item=item from=$file_data}
-	<input type="radio" name="node" value="{$key}"> {$item->attributes->name}</br />
+{foreach item=item key=key from=$node_array}
+	<input type="radio" name="node" value="{$key}"> {$item}</br />
 {/foreach}
 {file_data}
 <br />

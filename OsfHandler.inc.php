@@ -62,7 +62,39 @@ class OsfHandler extends Handler {
 		$articleDao =& DAORegistry::getDAO('ArticleDAO');
 		$article =& $articleDao->getArticle($articleId);
 		$journalId = $article->getJournalId();
-		return Config::getVar('files', 'files_dir') . '/journals/' . $journalId .  '/articles/' . $articleId . '/supp/' . $file_name;
+		return Config::getVar('files', 'files_dir') . '/journals/' . $journalId .  '/articles/' . $articleId . '/submission/original/';
+	}
+
+	function download_file($url, $path) {
+		$access_token = $_SESSION['token'];
+
+		$ch = curl_init();
+		curl_setopt($ch, CURLOPT_URL, $url);
+		curl_setopt($ch, CURLOPT_VERBOSE, 1);
+		curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+		curl_setopt($ch, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+		curl_setopt($ch, CURLOPT_HEADER, 0);
+		curl_setopt($ch, CURLOPT_HTTPHEADER, array('Authorization: Bearer ' . $access_token));
+		$result = curl_exec($ch);
+		curl_close($ch);
+
+		// the following lines write the contents to a file in the same directory (provided permissions etc)
+		$fp = fopen($path, 'w');
+		fwrite($fp, $result);
+		fclose($fp);
+	}
+
+	function login_required($request) {
+		$user =& $request->getUser();
+		$journal =& $request->getJournal();
+		if ($user == NULL){
+
+			$url = $journal->getUrl() . '/login/signIn?source=' . $_SERVER['REQUEST_URI'];
+
+			redirect($url); 
+		} else {
+			return True;
+		}
 	}
 	
 	/* sets up the template to be rendered */
@@ -103,6 +135,7 @@ class OsfHandler extends Handler {
 		/osf/index/
 	*/
 	function index($args, &$request) {
+		$this->login_required($request);
 	
 		$context = array(
 			"page_title" => "OSF Submission",
@@ -114,16 +147,22 @@ class OsfHandler extends Handler {
 		/osf/get_token/
 	*/
 	function get_token($args, &$request) {
-		header ('Location: https://test-accounts.osf.io/oauth2/authorize?scope=osf.full_read&client_id=abb1368d3b124148899ff5fd5b07976f&redirect_uri=http://localhost:8001/index.php/test/osf/callback/');
+		$this->login_required($request);
+		$journal =& $request->getJournal();
+		$url = 'https://test-accounts.osf.io/oauth2/authorize?scope=osf.full_read&client_id=abb1368d3b124148899ff5fd5b07976f&redirect_uri=' . $journal->getUrl() . '/osf/callback/';
+		redirect($url);
 	}
 
 	/* handles requests to:
 		/osf/callback/
 	*/
 	function callback($args, &$request) {
+		$this->login_required($request);
+		$journal =& $request->getJournal();
+
 		$oauth2_client_id = 'abb1368d3b124148899ff5fd5b07976f';
 		$oauth2_secret = '3mmXzLqWOmNmtKNAu6VooOdqmqpBfCd9QqfZLRkC';
-		$oauth2_redirect = 'http://localhost:8001/index.php/test/osf/callback/';
+		$oauth2_redirect = $journal->getUrl() . '/osf/callback/';
 
 		try {
 			$code = $_GET['code'];
@@ -153,16 +192,19 @@ class OsfHandler extends Handler {
 		// Tada: we have an access token!
 	    $_SESSION['token'] = $responseObj->access_token;
 	    
-	    redirect('http://localhost:8001/index.php/test/osf/nodes/');
+	    redirect($journal->getUrl() . '/osf/nodes/');
 	}
 
 	/* handles requests to:
 		/osf/nodes/
 	*/
 	function nodes($args, &$request) {
+		$this->login_required($request);
+		$journal =& $request->getJournal();
+
 		if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 			$selected_node = $_POST["node"];
-			redirect('http://localhost:8001/index.php/test/osf/node/?id=' . $selected_node);
+			redirect($journal->getUrl() . '/osf/node/?id=' . $selected_node);
 		} else {
 			$path = 'users/me/';
 			$user_response = $this -> api_call($path, False);
@@ -171,6 +213,7 @@ class OsfHandler extends Handler {
 			$node_response = $this -> api_call(false, $node_url);
 			$node_array = array();
 			foreach ($node_response->data as $data) {
+				echo $data->id;
 			    $node_array[$data->id] = $data->attributes->title;
 			}
 
@@ -186,56 +229,122 @@ class OsfHandler extends Handler {
 		/osf/node/?id&provider&path
 	*/
 	function node($args, &$request) {
+		$this->login_required($request);
 		$node_id = $_GET['id'];
 		$provider = $_GET['provider'];
 		$file_path = $_GET['path'];
 
-		if ($provider && ! $file_path) {
-			$active = 'path';
-			$path = 'nodes/' . $node_id . '/files/' . $provider . '/';
-			$file_response = $this->api_call($path, False);
+		if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
-			$file_array = array();
+			$journal =& $request->getJournal();
+			$user =& $request->getUser();
 
-			foreach ($file_response->data as $file) {
-				$file_array[$file->id] = $file->attributes->name;
-			}
+			$label = $_POST["label"];
+			$descr = $_POST["description"];
 
-		} elseif ($file_path) {
-			$active = 'path';
+			$params = array(
+				'locale' => AppLocale::getLocale(), 
+				'user_id' => $user->getId(), 
+				'journal_id'=> $journal->getId(), 
+				'language' => 'en', 
+				'current_round' => 1);
+
+			$article_id = $this->dao->create_article($params);
+			$articleDao =& DAORegistry::getDAO('ArticleDAO');
+			$article =& $articleDao->getArticle($article_id);
+
 			$path = '/files/' . $file_path . '/';
 			$file_response = $this->api_call($path, False);
 
-			if ($file_response->data->attributes->kind == 'folder') {
-				$path = 'nodes/' . $node_id . '/files/' . $provider . $file_response->data->attributes->path;
+			$file_params = array(
+				'revision' => 1, 
+				'article_id' => $article_id, 
+				'original_filename' => $file_response->data->attributes->name, 
+				'file_stage' => 1, 
+				'date_uploaded' => date("Y-m-d H:i:s"),
+				'date_modified' => date("Y-m-d H:i:s"), 
+				'round' => 1,
+				'file_name' => 'temp',
+				'file_type' => 'temp',
+				'file_size' => 1);
+
+			$file_id = $this->dao->create_file($file_params);
+
+			$download_link = $file_response->data->links->download;
+			$download_path = $this->file_path($article_id, $file_response->data->attributes->name);
+
+			mkdir($download_path, 0775, true);
+
+			$file_ext = pathinfo($file_response->data->attributes->name, PATHINFO_EXTENSION);
+			$ojs_file_name = $article_id . '-' . $file_id . '-1.' . $file_ext;
+			$download = $this->download_file($download_link, $download_path . $ojs_file_name);
+
+			$update_file_params = $arrayName = array(
+				'file_name' => $ojs_file_name, 
+				'file_type' => mime_content_type($download_path . $ojs_file_name),
+				'file_size' => filesize($download_path . $ojs_file_name),
+				'file_id' => $file_id);
+
+			$submission_file_params = array(
+				'submission_file_id' => $file_id,
+				'article_id' => $article_id);
+
+			$update = $this->dao->update_file($update_file_params);
+			$update = $this->dao->update_article_submission_file($submission_file_params);
+
+			$url = $journal->getUrl() . '/osf/contributors/?id=' . $node_id . '&article_id=' . $article_id;
+
+			redirect($url); 
+
+		} else {
+
+			if ($provider && ! $file_path) {
+				$active = 'path';
+				$path = 'nodes/' . $node_id . '/files/' . $provider . '/';
 				$file_response = $this->api_call($path, False);
-			} elseif ($file_response->data->attributes->kind == 'file') {
-				$download_link = $file_response->data->links->download;
-				$active = 'file';
-			}
 
-			$file_array = array();
+				$file_array = array();
 
-			if (is_array($file_response->data)) {
 				foreach ($file_response->data as $file) {
 					$file_array[$file->id] = $file->attributes->name;
 				}
+
+			} elseif ($file_path) {
+				$active = 'path';
+				$path = '/files/' . $file_path . '/';
+				$file_response = $this->api_call($path, False);
+
+				if ($file_response->data->attributes->kind == 'folder') {
+					$path = 'nodes/' . $node_id . '/files/' . $provider . $file_response->data->attributes->path;
+					$file_response = $this->api_call($path, False);
+				} elseif ($file_response->data->attributes->kind == 'file') {
+					$download_link = $file_response->data->links->download;
+					$active = 'file';
+				}
+
+				$file_array = array();
+
+				if (is_array($file_response->data)) {
+					foreach ($file_response->data as $file) {
+						$file_array[$file->id] = $file->attributes->name;
+					}
+				} else {
+					$file_array[$file_response->id] = $file_response->data->attributes->name;
+				}
+				
+
 			} else {
-				$file_array[$file_response->id] = $file_response->data->attributes->name;
-			}
-			
+				$active = "provider";
+				$path = 'nodes/' . $node_id . '/?embed=files';
+				$node_response = $this->api_call($path, False);
 
-		} else {
-			$active = "provider";
-			$path = 'nodes/' . $node_id . '/?embed=files';
-			$node_response = $this->api_call($path, False);
+				$file_data = $node_response->data->embeds->files->data;
 
-			$file_data = $node_response->data->embeds->files->data;
+				$file_array = array();
 
-			$file_array = array();
-
-			foreach ($file_data as $file) {
-				$file_array[$file->attributes->provider] = $file->attributes->name;
+				foreach ($file_data as $file) {
+					$file_array[$file->attributes->provider] = $file->attributes->name;
+				}
 			}
 		}
 
@@ -247,9 +356,38 @@ class OsfHandler extends Handler {
 			"active" => $active,
 			"provider" => $provider,
 		);
-
 		$this->display('node.tpl', $context);
 
+	}
+
+	function contributors($args, &$request){
+		$this->login_required($request);
+		$node_id = $_GET['id'];
+		$article_id = $_GET['article_id'];
+
+		$path = 'nodes/' . $node_id . '/?embed=contributors';
+		$node_response = $this->api_call($path, False);
+		$contrib_data = $node_response->data->embeds->contributors->data;
+
+		if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+			if( isset($_POST['contributors']) && is_array($_POST['contributors']) ) {
+				foreach($_POST['contributors'] as $contributor) {
+			        echo "I have a " . $contributor;
+			    }
+			} elseif (isset($_POST['contributors'])) {
+				echo "I have a " . $contributors;
+			}
+		}	
+
+		$user_array = array();
+		foreach ($contrib_data as $user) {
+			$user_array[$user->id] = $user->embeds->users->data->attributes->full_name;
+		}
+
+		$context = array(
+			'user_array' => $user_array, 
+		);
+		$this->display('contributors.tpl', $context);
 	}
 	
 }

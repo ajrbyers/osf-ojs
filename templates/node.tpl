@@ -15,6 +15,11 @@
 		<li>{$item}</li>
 	{/foreach}
 	</ul>
+	<h4>File Details</h4>
+	<div class="separator"></div>
+	<p><strong>Label</strong>:<br /><input type="text" name="label" class="textField" style="width: 200px;"></p>
+	<p><strong>Description</strong>:<br /><textarea name="description" class="textArea" cols="34" rows="5"></textarea>
+	<div class="separator"></div>
 	<input type="submit" name="node_submit" id="node_submit" class="button" value="Start Submission with File"/>
 </form>
 {else}

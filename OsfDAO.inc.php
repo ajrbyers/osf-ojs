@@ -8,35 +8,56 @@
  */
 
 class OsfDAO extends DAO {
-	function create_figshare_file($params) {
+
+	function getInsertArticleId() {
+		return $this->getInsertId('articles', 'article_id');
+	}
+
+	function getInsertArticleFileId() {
+		return $this->getInsertId('article_files', 'file_id');
+	}
+
+	function create_article($params) {
 		$sql = <<< EOF
-			INSERT INTO figshare_files
-			(file_id, article_id, figshare_id, title, description, type, status, doi)
+			INSERT INTO articles
+			(locale, user_id, journal_id, language, current_round)
 			VALUES
-			(?, ?, ?, ?, ?, ?, ?, ?)
+			(?, ?, ?, ?, ?)
 EOF;
 		$commit = $this->update($sql, $params);
+		$article_id = $this->getInsertArticleId();
 
-		return $commit;
+		return $article_id;
+	}
+	function create_file($params) {
+		$sql = <<< EOF
+			INSERT INTO article_files
+			(revision, article_id, original_file_name, file_stage, date_uploaded, date_modified, round, file_name, file_type, file_size)
+			VALUES
+			(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+EOF;
+		$commit = $this->update($sql, $params);
+		$file_id = $this->getInsertArticleFileId();
+
+		return $file_id;
 	}
 
-	function fetch_figshare_articles($article_id) {
+	function update_file($params) {
 		$sql = <<< EOF
-			SELECT fig.*, af.original_file_name, af.date_uploaded FROM figshare_files AS fig
-			JOIN article_files AS af ON af.file_id = fig.file_id
-			WHERE fig.article_id = ?
+			UPDATE article_files
+			SET file_name = ?, file_type = ?, file_size = ?
+			WHERE file_id = ?
 EOF;
-		return $this->retrieve($sql, array($article_id));
+		$commit = $this->update($sql, $params);
 	}
 
-	function delete_figshare_file($figshare_file_id) {
+		function update_article_submission_file($params) {
 		$sql = <<< EOF
-			DELETE FROM figshare_files
-			WHERE id = ?
+			UPDATE articles
+			SET submission_file_id = ?
+			WHERE article_id = ?
 EOF;
-		$commit = $this->update($sql, array($figshare_file_id));
-
-		return $commit;
+		$commit = $this->update($sql, $params);
 	}
 }
 
