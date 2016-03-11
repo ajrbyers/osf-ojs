@@ -17,6 +17,10 @@ class OsfDAO extends DAO {
 		return $this->getInsertId('article_files', 'file_id');
 	}
 
+	function getInsertAuthorId() {
+		return $this->getInsertId('authors', 'author_id');
+	}
+
 	function create_article($params) {
 		$sql = <<< EOF
 			INSERT INTO articles
@@ -51,7 +55,7 @@ EOF;
 		$commit = $this->update($sql, $params);
 	}
 
-		function update_article_submission_file($params) {
+	function update_article_submission_file($params) {
 		$sql = <<< EOF
 			UPDATE articles
 			SET submission_file_id = ?
@@ -59,5 +63,54 @@ EOF;
 EOF;
 		$commit = $this->update($sql, $params);
 	}
+
+	function complete_article($params) {
+		$sql = <<< EOF
+			UPDATE articles
+			SET section_id = ?, submission_progress = ?, date_submitted = ?
+			WHERE article_id = ?
+EOF;
+		$commit = $this->update($sql, $params);
+	}
+
+	function add_author($params) {
+		$sql = <<< EOF
+			INSERT INTO authors
+			(submission_id, primary_contact, seq, first_name, middle_name, last_name, country, email, url)
+			VALUES
+			(?, ?, ?, ?, ?, ?, ?, ?, ?)
+EOF;
+		$commit = $this->update($sql, $params);
+		$author_id = $this->getInsertAuthorId();
+
+		return $author_id;
+	}
+
+	function add_author_settings($author_id, $locale, $params){
+		foreach ($params as $key => $value) {
+			$sql = <<< EOF
+				INSERT INTO author_settings
+				(author_id, locale, setting_name, setting_value, setting_type)
+				VALUES
+				(?, ?, ?, ?, ?)
+EOF;
+			$commit = $this->update($sql, array($author_id, $locale, $key, $value, 'string'));
+		}
+	}
+
+	function add_article_settings($article_id, $locale, $params){
+		foreach ($params as $key => $value) {
+			$sql = <<< EOF
+				INSERT INTO article_settings
+				(article_id, locale, setting_name, setting_value, setting_type)
+				VALUES
+				(?, ?, ?, ?, ?)
+EOF;
+			$commit = $this->update($sql, array($article_id, $locale, $key, $value, 'string'));
+		}
+		
+
+	}
+
 }
 

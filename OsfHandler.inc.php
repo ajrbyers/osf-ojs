@@ -96,6 +96,61 @@ class OsfHandler extends Handler {
 			return True;
 		}
 	}
+
+	function handle_contributor_form($contributors) {
+		$required_fields = array('firstName', 'lastName', 'email');
+		$errors = array();
+
+		foreach ($contributors as $contributor) {
+			foreach ($required_fields as $field) {
+				if (empty($contributor[$field])) {
+					$errors[$field] = 'is required.';
+				}
+			}
+		}
+		if (empty($errors)) {
+			$check = True;
+		} else {
+			$check = False;
+		}
+
+		return array('check' => $check, 'errors' => $errors);
+	}
+
+	function handle_adding_authors($contributors, $authors, $article_id, $request){
+		$i = 1;
+		foreach($contributors as $contributor) {
+    		$author = $authors[$contributor];
+    		if ($author['primary']) {
+    			$primary = 1;
+    		} else {
+    			$primary = 0;
+    		}
+
+    		$author_params = array(
+    			'submission_id' => $article_id,
+    			'primary_contact' => $primary,
+    			'seq' => $i,
+    			'first_name' => $author['firstName'],
+    			'middle_name' => $author['middleName'],
+    			'last_name' => $author['lastName'],
+    			'country' => $author['country'],
+    			'email' => $author['email'],
+    			'url' => $author['url'],
+    		);
+
+    		$author_settings = array(
+    			'biography' => $author['biography'],
+    			'affiliation' => $author['affiliation'],
+    		);
+
+    		$author_id = $this->dao->add_author($author_params);
+
+    		$this->dao->add_author_settings($author_id, AppLocale::getLocale(), $author_settings);
+       		
+       		$i++;
+   		}
+	}
 	
 	/* sets up the template to be rendered */
 	function display($fname, $page_context=array()) {
@@ -139,6 +194,7 @@ class OsfHandler extends Handler {
 	
 		$context = array(
 			"page_title" => "OSF Submission",
+			"journal" => $request->getJournal(),
 		);
 		$this->display('index.tpl', $context);
 	}
@@ -371,23 +427,124 @@ class OsfHandler extends Handler {
 
 		if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 			if( isset($_POST['contributors']) && is_array($_POST['contributors']) ) {
+
+				$contributors = array();
+
 				foreach($_POST['contributors'] as $contributor) {
-			        echo "I have a " . $contributor;
+			       array_push($contributors, $_POST['authors'][$contributor]);
 			    }
-			} elseif (isset($_POST['contributors'])) {
-				echo "I have a " . $contributors;
+
+			    $check = $this->handle_contributor_form($contributors);
+
+				if ($check['check'] == True) {
+					// handle saving and redirect
+					$this->handle_adding_authors($_POST['contributors'], $_POST['authors'], $article_id, $request);
+					$journal =& $request->getJournal();
+					redirect($journal->getUrl() . '/osf/metadata/?id=' . $node_id . '&article_id=' . $article_id);
+				} else {
+					// handle erorrs
+					$errors = $check['errors'];
+				}
+			} else {
+				$errors = array('You must select at least one contributor');
 			}
-		}	
+			$authors = array();
+			foreach($_POST['contributors'] as $contributor) {
+		       $authors[$contributor] = $_POST['authors'][$contributor];
+		    }	
+		}
 
 		$user_array = array();
 		foreach ($contrib_data as $user) {
 			$user_array[$user->id] = $user->embeds->users->data->attributes->full_name;
 		}
 
+		$countryDao =& DAORegistry::getDAO('CountryDAO');
+
 		$context = array(
-			'user_array' => $user_array, 
+			'user_array' => $user_array,
+			'errors' => $errors,
+			'authors' => $authors,
+			'countries' => $countryDao->getCountries(),
+			'contributors' => $_POST['contributors'],
 		);
 		$this->display('contributors.tpl', $context);
+	}
+
+	function metadata($args, &$request){
+		$this->login_required($request);
+		$node_id = $_GET['id'];
+		$article_id = $_GET['article_id'];
+
+		$journal =& $request->getJournal();
+		$sectionDao =& DAORegistry::getDAO('SectionDAO');
+
+		if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+			$required_fields = array('sectionId', 'title', 'abstract');
+			$errors = array();
+			foreach ($required_fields as $field) {
+				if (empty($_POST[$field])) {
+					$errors[$field] = 'is required.';
+				}
+			}
+
+			$submission_checklist = sizeof($journal->getLocalizedSetting('submissionChecklist'));
+			$checked_elements = sizeof($_POST['checklist']);
+
+			if ($submission_checklist == $checked_elements) {
+				//pass
+			} else {
+				$errors['checklist'] = '- you must check all items in the submission checklist.';
+			}
+
+			$selected_check_items = array();
+			foreach ($_POST['checklist'] as $key => $value) {
+				array_push($selected_check_items, $key + 1);
+			}
+
+			if (empty($errors)) {
+				$article_settings_params = array(
+					'title' => $_POST['title'],
+					'abstract' => $_POST['abstract'],
+				);
+
+				$this->dao->add_article_settings($article_id, AppLocale::getLocale(), $article_settings_params);
+
+				$article_settings = array(
+					'section_id' => $_POST['sectionId'],
+					'submission_progress' => 0,
+					'date_uploaded' => date("Y-m-d H:i:s"),
+					'article_id' => $article_id,
+				);
+
+				$this->dao->complete_article($article_settings);
+
+				redirect($journal->getUrl() . '/osf/complete/?article_id=' . $article_id);
+			}
+		}
+
+		$context = array(
+			'sectionOptions' => $sectionDao->getSectionTitles($journal->getId(), !$isEditor),
+			'currentJournal' => $journal,
+			'errors' => $errors,
+			'post' => $_POST,
+			'selected_check_items' => $selected_check_items,
+		);
+		$this->display('metadata.tpl', $context);
+	}
+
+	function complete($args, &$request) {
+		$article_id = $_GET['article_id'];
+		$journal =& $request->getJournal();
+
+		$articleDao =& DAORegistry::getDAO('ArticleDAO');
+		$article =& $articleDao->getArticle($article_id);
+
+		$context = array(
+			'article' => $article,
+			'journal' => $journal,
+		);
+		$this->display('complete.tpl', $context);
 	}
 	
 }
