@@ -21,6 +21,10 @@ class OsfDAO extends DAO {
 		return $this->getInsertId('authors', 'author_id');
 	}
 
+	function getInsertUserId() {
+		return $this->getInsertId('users', 'user_id');
+	}
+
 	function create_article($params) {
 		$sql = <<< EOF
 			INSERT INTO articles
@@ -111,6 +115,49 @@ EOF;
 		
 
 	}
+
+	function add_generated_user($params, $journal) {
+		$sql = <<< EOF
+			INSERT INTO users
+			(username, first_name, last_name, email, password, date_registered, date_last_login, disabled)
+			VALUES
+			(?, ?, ?, ?, ?, ?, ?, ?)
+EOF;
+		$commit = $this->update($sql, $params);
+		$user_id = $this->getInsertUserId();
+
+		$sql = <<< EOF
+			INSERT INTO roles
+			(user_id, journal_id, role_id)
+			VALUES
+			(?, ?, ?)
+EOF;
+		$commit = $this->update($sql, array('user_id' => $user_id, 'journal_id' => $journal->getId(), 'role_id' => 65536));
+
+		return $user_id;
+	}
+
+	function check_email($email) {
+		$sql = <<< EOF
+			SELECT * FROM users
+			WHERE email = ?
+EOF;
+		return $this->retrieve($sql, array($email));
+	}
+
+	function incompleteSubmissionExists($article_id, $user_id, $journal_id) {
+		$result =& $this->retrieve(
+			'SELECT submission_progress FROM articles WHERE article_id = ? AND user_id = ? AND journal_id = ? AND submission_progress = 1',
+			array($article_id, $user_id, $journal_id)
+		);
+		$returner = isset($result->fields[0]) ? $result->fields[0] : false;
+
+		$result->Close();
+		unset($result);
+
+		return $returner;
+	}
+
 
 }
 

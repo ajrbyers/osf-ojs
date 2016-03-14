@@ -8,6 +8,7 @@
  */
 
 import('classes.handler.Handler');
+require_once('classes/security/Validation.inc.php');
 require_once('OsfDAO.inc.php');
 require_once('utils/HttpPost.class.php');
 
@@ -87,11 +88,32 @@ class OsfHandler extends Handler {
 	function login_required($request) {
 		$user =& $request->getUser();
 		$journal =& $request->getJournal();
+
 		if ($user == NULL){
+			redirect($journal->getUrl() . '/login/signIn?source=' . $_SERVER['REQUEST_URI']); 
+		} else {
+			return True;
+		}
+	}
 
-			$url = $journal->getUrl() . '/login/signIn?source=' . $_SERVER['REQUEST_URI'];
+	function login_owner_required($request) {
+		$user =& $request->getUser();
+		$articleDao =& DAORegistry::getDAO('ArticleDAO');
+		$article =& $articleDao->getArticle($request->_requestVars['article_id']);
+		$journal =& $request->getJournal();
 
-			redirect($url); 
+		var_dump($this->dao->incompleteSubmissionExists($article->getId(), $user->getId(), $journal->getId()));
+
+		if (!$article) {
+			echo 'no article';
+			redirect($journal->getUrl() . '/user/');
+		} elseif ($this->dao->incompleteSubmissionExists($article->getId(), $user->getId(), $journal->getId()) == 0) {
+			redirect($journal->getUrl() . '/user/');
+		} elseif ($user == NULL){
+			redirect($journal->getUrl() . '/login/signIn?source=' . $_SERVER['REQUEST_URI']);
+		} elseif ($user->getId() != $article->getUserId()) {
+			echo 'article and user dont match';
+			redirect($journal->getUrl() . '/user/');
 		} else {
 			return True;
 		}
@@ -151,6 +173,55 @@ class OsfHandler extends Handler {
        		$i++;
    		}
 	}
+
+	function email_user_details($first_name, $last_name, $email, $username, $generated_password, $journal) {
+		$text = <<< EOF
+Dear {$first_name} {$last_name} ({$email}),
+
+An account has been created for you with {$journal->getLocalizedTitle()}. Your details are below:
+
+- Username: {$username}
+- Password: {$generated_password}
+- Journal URL: {$journal->getUrl()}
+
+If you return to the page where you were informed of this email, you will now be able to login to complete your submission.
+
+Regards,
+OSF Submission Bot
+EOF;
+		
+		echo $text;
+		import('lib.pkp.classes.mail.Mail');
+		$email = new Mail();
+		$email->setSubject('New User Account');
+		$email->setBody($text);
+		$email->addRecipient('ajrbyers@gmail.com');
+		$email->send();
+
+		var_dump($email);
+	}
+
+	function generate_user_account($email, $first_name, $last_name, $journal) {
+		$validation = new Validation();
+		$generated_password = $validation->generatePassword();
+		$username = $validation->suggestUsername($first_name, $last_name);
+		$hashed_password = $validation->encryptCredentials($username, $generated_password);
+
+		$user_params = array(
+			'username' => $username,
+			'first_name' => $first_name,
+			'last_name' => $last_name,
+			'email' => $email,
+			'password' => $hashed_password,
+			'date_registered' => date("Y-m-d H:i:s"),
+			'date_last_login' => date("Y-m-d H:i:s"),
+			'disabled' => 0,
+
+		);
+
+		$this->dao->add_generated_user($user_params, $journal);
+		$this->email_user_details($first_name, $last_name, $email, $username, $generated_password, $journal);
+	}
 	
 	/* sets up the template to be rendered */
 	function display($fname, $page_context=array()) {
@@ -190,11 +261,28 @@ class OsfHandler extends Handler {
 		/osf/index/
 	*/
 	function index($args, &$request) {
-		$this->login_required($request);
-	
+		if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+
+			$email_check = $this->dao->check_email($_POST['email']);	
+
+			var_dump($email_check->fields);
+
+			if (!$email_check->fields) {
+				$_SESSION['email'] = $_POST['email'];
+				redirect($request->getJournal()->getUrl() . '/osf/get_token/');
+			} else {
+				$errors = "Supplied email adress has already been registered with this journal. Use the login first link above.";
+			}
+			
+		}
+
+		$validation = new Validation();
 		$context = array(
 			"page_title" => "OSF Submission",
+			"logged_in" => $validation->isLoggedIn(),
 			"journal" => $request->getJournal(),
+			"login_url" => $request->getJournal()->getUrl() . '/login/signIn?source=' . $_SERVER['REQUEST_URI'],
+			"errors" => $errors,
 		);
 		$this->display('index.tpl', $context);
 	}
@@ -203,7 +291,6 @@ class OsfHandler extends Handler {
 		/osf/get_token/
 	*/
 	function get_token($args, &$request) {
-		$this->login_required($request);
 		$journal =& $request->getJournal();
 		$url = 'https://test-accounts.osf.io/oauth2/authorize?scope=osf.full_read&client_id=abb1368d3b124148899ff5fd5b07976f&redirect_uri=' . $journal->getUrl() . '/osf/callback/';
 		redirect($url);
@@ -213,7 +300,6 @@ class OsfHandler extends Handler {
 		/osf/callback/
 	*/
 	function callback($args, &$request) {
-		$this->login_required($request);
 		$journal =& $request->getJournal();
 
 		$oauth2_client_id = 'abb1368d3b124148899ff5fd5b07976f';
@@ -247,8 +333,36 @@ class OsfHandler extends Handler {
 
 		// Tada: we have an access token!
 	    $_SESSION['token'] = $responseObj->access_token;
-	    
-	    redirect($journal->getUrl() . '/osf/nodes/');
+
+	    $validation = new Validation();
+
+	    if ($validation->isLoggedIn() == 0) {
+	    	redirect($journal->getUrl() . '/osf/account/');
+	    } else {
+	    	redirect($journal->getUrl() . '/osf/nodes/');
+	    }
+	}
+
+	function account($args, &$request) {
+		$journal =& $request->getJournal();
+		$validation = new Validation();
+
+		if ($_SESSION['email'] && $validation->isLoggedIn() == 0) {
+			$path = 'users/me/';
+			$user_response = $this -> api_call($path, False);
+
+			$this->generate_user_account($_SESSION['email'], $user_response->data->attributes->given_name, $user_response->data->attributes->family_name, $journal);
+
+			unset($_SESSION['email']);
+
+			$context = array(
+					"page_title" => "Journal Account",
+					"login_url" => $request->getJournal()->getUrl() . '/login/signIn?source=' . $request->getJournal()->getUrl() . '/osf/nodes/',
+				);
+			$this->display('account.tpl', $context);
+		} else {
+			redirect($journal->getUrl() . '/osf/nodes/');
+		}
 	}
 
 	/* handles requests to:
@@ -417,7 +531,7 @@ class OsfHandler extends Handler {
 	}
 
 	function contributors($args, &$request){
-		$this->login_required($request);
+		$this->login_owner_required($request);
 		$node_id = $_GET['id'];
 		$article_id = $_GET['article_id'];
 
@@ -472,7 +586,7 @@ class OsfHandler extends Handler {
 	}
 
 	function metadata($args, &$request){
-		$this->login_required($request);
+		$this->login_owner_required($request);
 		$node_id = $_GET['id'];
 		$article_id = $_GET['article_id'];
 

@@ -6,7 +6,7 @@
 </style>
 {/literal}
 
-<h2>OSF Submission</h2>
+<h2>Contributors</h2>
 <p>Select contributors to add as authors to this paper.</p>
 {if $errors}
 <div style="width: 100%; color: #a94442; background-color: #f2dede; padding: 5px; margin-bottom: 10px;">

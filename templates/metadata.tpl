@@ -6,7 +6,7 @@
 </style>
 {/literal}
 
-<h2>OSF Submission</h2>
+<h2>Article Metadata</h2>
 <p>Complete your submission by providing a title and an abstract.</p>
 {if $errors}
 <div style="width: 100%; color: #a94442; background-color: #f2dede; padding: 5px; margin-bottom: 10px;">
