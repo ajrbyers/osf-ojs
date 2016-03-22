@@ -288,6 +288,17 @@ EOF;
 	}
 
 	/* handles requests to:
+		/osf/api_check/
+	*/
+	function api_check($args, &$request) {
+		$response = array(
+			"name" => "OSF-OJS API",
+			"status" => 200,
+		);
+		return json_encode($response);
+	}
+
+	/* handles requests to:
 		/osf/get_token/
 	*/
 	function get_token($args, &$request) {
